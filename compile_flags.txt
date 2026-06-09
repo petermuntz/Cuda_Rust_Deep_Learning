@@ -1,0 +1,4 @@
+-x
+cuda
+--cuda-gpu-arch=sm_75
+-I/home/peter/.local/share/cuda/include
