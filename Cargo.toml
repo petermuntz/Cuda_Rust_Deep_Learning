@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # The bridge between Rust and CUDA
-cudarc = { version = "0.11", features = ["derive"] }
+cudarc = { version = "0.13", features = ["cuda-version-from-build-system"] }
 
 [build-dependencies]
 # A handy crate to help us invoke nvcc smoothly during cargo build
