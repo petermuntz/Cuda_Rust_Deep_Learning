@@ -44,3 +44,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Success! Memory automatically cleared via Rust RAII dropping out of scope.");
     Ok(())
+}
