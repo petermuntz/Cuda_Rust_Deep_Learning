@@ -1,11 +1,11 @@
 use cudarc::driver::{CudaDevice, LaunchConfig, LaunchAsync};
+use std::sync::Arc;
+
+mod matmul;
 
 const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/vector_add.ptx"));
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initializing CUDA Device...");
-    let dev = CudaDevice::new(0)?;
-
+fn run_vector_add(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn std::error::Error>> {
     dev.load_ptx(PTX.into(), "vector_add_module", &["vector_add"])?;
     let vector_add_kernel = dev.get_func("vector_add_module", "vector_add").unwrap();
 
@@ -41,6 +41,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Verifying math results:");
     println!("A[0] ({}) + B[0] ({}) = C[0] ({})", host_a[0], host_b[0], host_c[0]);
     println!("A[9999] ({}) + B[9999] ({}) = C[9999] ({})", host_a[9999], host_b[9999], host_c[9999]);
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Initializing CUDA Device...");
+    let dev = CudaDevice::new(0)?;
+
+    println!("\n═══ Vector Add ═══");
+    run_vector_add(&dev)?;
+
+    println!("\n═══ MatMul Benchmark ═══");
+    matmul::run_matmul_benchmark(&dev)?;
 
     println!("Success! Memory automatically cleared via Rust RAII dropping out of scope.");
     Ok(())

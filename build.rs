@@ -1,19 +1,19 @@
 use std::process::Command;
 use std::path::PathBuf;
 
-fn main() {
-    println!("cargo:rerun-if-changed=src/kernels/vector_add.cu");
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-
+fn compile_cu(name: &str, out_dir: &PathBuf) {
+    let src = format!("src/kernels/{}.cu", name);
+    let out = out_dir.join(format!("{}.ptx", name));
+    println!("cargo:rerun-if-changed={}", src);
     let status = Command::new("nvcc")
-        .args(&[
-            "-ptx",
-            "src/kernels/vector_add.cu",
-            "-o",
-            out_dir.join("vector_add.ptx").to_str().unwrap(),
-        ])
+        .args(&["-ptx", &src, "-o", out.to_str().unwrap()])
         .status()
-        .expect("Failed to run nvcc");
+        .unwrap_or_else(|_| panic!("Failed to run nvcc for {}", src));
+    assert!(status.success(), "nvcc compilation failed for {}", src);
+}
 
-    assert!(status.success(), "nvcc compilation failed");
+fn main() {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    compile_cu("vector_add", &out_dir);
+    compile_cu("matmul", &out_dir);
 }
