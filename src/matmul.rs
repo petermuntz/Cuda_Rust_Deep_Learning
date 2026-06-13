@@ -41,8 +41,9 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     let d_b = dev.htod_copy(host_b)?;
     let mut d_c_naive = dev.alloc_zeros::<f32>(M * N)?;
     let mut d_c_tiled = dev.alloc_zeros::<f32>(M * N)?;
+    let mut d_c_tiled32 = dev.alloc_zeros::<f32>(M * N)?;
 
-    dev.load_ptx(PTX.into(), "matmul_module", &["matmul_naive", "matmul_tiled"])?;
+    dev.load_ptx(PTX.into(), "matmul_module", &["matmul_naive", "matmul_tiled", "matmul_tiled_32"])?;
 
     // ── Naive matmul ──
     let naive_func = dev.get_func("matmul_module", "matmul_naive").unwrap();
@@ -88,12 +89,35 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     let tiled_diff = max_diff(&host_c_ref, &host_c_tiled);
     let tiled_gflops = (2.0 * M as f64 * N as f64 * K as f64) / tiled_time.as_secs_f64() / 1e9;
 
+    // ── Tiled 32×32 matmul ──
+    let tiled32_func = dev.get_func("matmul_module", "matmul_tiled_32").unwrap();
+    let grid_tiled32 = ((N as u32 + 31) / 32, (M as u32 + 31) / 32, 1);
+    let cfg_tiled32 = LaunchConfig {
+        grid_dim: grid_tiled32,
+        block_dim: (32, 32, 1),
+        shared_mem_bytes: (32 * 32 + 32 * 32) * 4,
+    };
+
+    // warmup
+    unsafe { tiled32_func.clone().launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M, N, K))?; }
+    dev.synchronize()?;
+
+    let start = Instant::now();
+    unsafe { tiled32_func.launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M, N, K))?; }
+    dev.synchronize()?;
+    let tiled32_time = start.elapsed();
+
+    let host_c_tiled32: Vec<f32> = dev.dtoh_sync_copy(&d_c_tiled32)?;
+    let tiled32_diff = max_diff(&host_c_ref, &host_c_tiled32);
+    let tiled32_gflops = (2.0 * M as f64 * N as f64 * K as f64) / tiled32_time.as_secs_f64() / 1e9;
+
     // ── Results ──
     println!("\n══════════ Matmul {}×{} × {}×{} ══════════", M, K, K, N);
-    println!("{:<20} {:>10} {:>10} {:>12} {:>12}", "Kernel", "Time", "Speedup", "MaxErr", "GFLOPS");
-    println!("{:-<20} {:->10} {:->10} {:->12} {:->12}", "", "", "", "", "");
-    println!("{:<20} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Naive (1:1)", naive_time.as_secs_f64() * 1e3, 1.0, naive_diff, naive_gflops);
-    println!("{:<20} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled (8/thread)", tiled_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled_time.as_secs_f64(), tiled_diff, tiled_gflops);
+    println!("{:<22} {:>10} {:>10} {:>12} {:>12}", "Kernel", "Time", "Speedup", "MaxErr", "GFLOPS");
+    println!("{:-<22} {:->10} {:->10} {:->12} {:->12}", "", "", "", "", "");
+    println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Naive (1:1)", naive_time.as_secs_f64() * 1e3, 1.0, naive_diff, naive_gflops);
+    println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled (8/thread)", tiled_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled_time.as_secs_f64(), tiled_diff, tiled_gflops);
+    println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled 32×32", tiled32_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled32_time.as_secs_f64(), tiled32_diff, tiled32_gflops);
     println!("═══════════════════════════════════════════════\n");
 
     Ok(())

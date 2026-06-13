@@ -76,3 +76,32 @@ extern "C" __global__ void matmul_tiled(
         }
     }
 }
+
+#define TILE32 32
+
+extern "C" __global__ void matmul_tiled_32(
+    const float* A, const float* B, float* C,
+    int M, int N, int K
+) {
+    __shared__ float As[TILE32][TILE32];
+    __shared__ float Bs[TILE32][TILE32];
+
+    int row = blockIdx.y * TILE32 + threadIdx.y;
+    int col = blockIdx.x * TILE32 + threadIdx.x;
+
+    float sum = 0.0f;
+    for (int k = 0; k < K; k += TILE32) {
+        As[threadIdx.y][threadIdx.x] = A[row * K + k + threadIdx.x];
+        Bs[threadIdx.y][threadIdx.x] = B[(k + threadIdx.y) * N + col];
+        __syncthreads();
+
+        for (int i = 0; i < TILE32; i++) {
+            sum += As[threadIdx.y][i] * Bs[i][threadIdx.x];
+        }
+        __syncthreads();
+    }
+
+    if (row < M && col < N) {
+        C[row * N + col] = sum;
+    }
+}
