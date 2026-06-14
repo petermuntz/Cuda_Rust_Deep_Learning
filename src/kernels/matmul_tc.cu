@@ -6,11 +6,13 @@
 #define TILE_K 32
 
 extern "C" __global__ void matmul_tiled_tc(
-    const __half* __restrict__ A,
-    const __half* __restrict__ B,
+    const unsigned short* __restrict__ A_raw,
+    const unsigned short* __restrict__ B_raw,
     float* __restrict__ C,
     int M, int N, int K
 ) {
+    const __half* A = reinterpret_cast<const __half*>(A_raw);
+    const __half* B = reinterpret_cast<const __half*>(B_raw);
     __shared__ __half As[TILE_M][TILE_K + 1];
     __shared__ __half Bs[TILE_K][TILE_N + 1];
 

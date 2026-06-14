@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::error::Error;
 
+
 const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/matmul_tc.ptx"));
 
 fn cpu_matmul(a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
@@ -40,9 +41,11 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
 
     let host_a_half: Vec<f16> = host_a_f32.iter().map(|&v| f16::from_f32(v)).collect();
     let host_b_half: Vec<f16> = host_b_f32.iter().map(|&v| f16::from_f32(v)).collect();
+    let host_a_u16: Vec<u16> = host_a_half.iter().map(|&h| h.to_bits()).collect();
+    let host_b_u16: Vec<u16> = host_b_half.iter().map(|&h| h.to_bits()).collect();
 
-    let d_a = dev.htod_copy(host_a_half)?;
-    let d_b = dev.htod_copy(host_b_half)?;
+    let d_a = dev.htod_copy(host_a_u16)?;
+    let d_b = dev.htod_copy(host_b_u16)?;
     let mut d_c = dev.alloc_zeros::<f32>(M * N)?;
 
     dev.load_ptx(PTX.into(), "matmul_tc_module", &["matmul_tiled_tc"])?;
