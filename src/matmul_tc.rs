@@ -1,9 +1,7 @@
 use cudarc::driver::{CudaDevice, LaunchConfig, LaunchAsync};
-use half::f16;
 use std::sync::Arc;
 use std::time::Instant;
 use std::error::Error;
-
 
 const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/matmul_tc.ptx"));
 
@@ -33,19 +31,14 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
     const N: usize = 1024;
     const K: usize = 1024;
 
-    let host_a_f32: Vec<f32> = (0..M * K).map(|i| (i % 127) as f32).collect();
-    let host_b_f32: Vec<f32> = (0..K * N).map(|i| ((i * 3) % 255) as f32).collect();
-    let host_c_ref = cpu_matmul(&host_a_f32, &host_b_f32, M, N, K);
+    let host_a: Vec<f32> = (0..M * K).map(|i| (i % 127) as f32).collect();
+    let host_b: Vec<f32> = (0..K * N).map(|i| ((i * 3) % 255) as f32).collect();
+    let host_c_ref = cpu_matmul(&host_a, &host_b, M, N, K);
 
     println!("\nComputing reference on CPU... done.");
 
-    let host_a_half: Vec<f16> = host_a_f32.iter().map(|&v| f16::from_f32(v)).collect();
-    let host_b_half: Vec<f16> = host_b_f32.iter().map(|&v| f16::from_f32(v)).collect();
-    let host_a_u16: Vec<u16> = host_a_half.iter().map(|&h| h.to_bits()).collect();
-    let host_b_u16: Vec<u16> = host_b_half.iter().map(|&h| h.to_bits()).collect();
-
-    let d_a = dev.htod_copy(host_a_u16)?;
-    let d_b = dev.htod_copy(host_b_u16)?;
+    let d_a = dev.htod_copy(host_a)?;
+    let d_b = dev.htod_copy(host_b)?;
     let mut d_c = dev.alloc_zeros::<f32>(M * N)?;
 
     dev.load_ptx(PTX.into(), "matmul_tc_module", &["matmul_tiled_tc"])?;

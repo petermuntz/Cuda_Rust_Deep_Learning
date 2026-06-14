@@ -6,13 +6,11 @@
 #define TILE_K 32
 
 extern "C" __global__ void matmul_tiled_tc(
-    const unsigned short* __restrict__ A_raw,
-    const unsigned short* __restrict__ B_raw,
+    const float* __restrict__ A_f32,
+    const float* __restrict__ B_f32,
     float* __restrict__ C,
     int M, int N, int K
 ) {
-    const __half* A = reinterpret_cast<const __half*>(A_raw);
-    const __half* B = reinterpret_cast<const __half*>(B_raw);
     __shared__ __half As[TILE_M][TILE_K + 1];
     __shared__ __half Bs[TILE_K][TILE_N + 1];
 
@@ -31,7 +29,7 @@ extern "C" __global__ void matmul_tiled_tc(
             int r = idx / TILE_K;
             int c = idx % TILE_K;
             if (r < TILE_M) {
-                As[r][c] = A[(block_row + r) * K + (k + c)];
+                As[r][c] = __float2half(A_f32[(block_row + r) * K + (k + c)]);
             }
         }
 
@@ -40,7 +38,7 @@ extern "C" __global__ void matmul_tiled_tc(
             int r = idx / TILE_N;
             int c = idx % TILE_N;
             if (r < TILE_K) {
-                Bs[r][c] = B[(k + r) * N + (block_col + c)];
+                Bs[r][c] = __float2half(B_f32[(k + r) * N + (block_col + c)]);
             }
         }
 

@@ -5,9 +5,7 @@ edition = "2021"
 
 [dependencies]
 # The bridge between Rust and CUDA
-cudarc = { version = "0.13", features = ["cuda-version-from-build-system", "f16"] }
-# Half-precision floating point for Tensor Core matmul
-half = { version = "=2.4.1", features = ["bytemuck"] }
+cudarc = { version = "0.13", features = ["cuda-version-from-build-system"] }
 
 [build-dependencies]
 # A handy crate to help us invoke nvcc smoothly during cargo build
