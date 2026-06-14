@@ -55,11 +55,11 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     };
 
     // warmup
-    unsafe { naive_func.clone().launch(cfg_naive, (&d_a, &d_b, &mut d_c_naive, M, N, K))?; }
+    unsafe { naive_func.clone().launch(cfg_naive, (&d_a, &d_b, &mut d_c_naive, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
 
     let start = Instant::now();
-    unsafe { naive_func.launch(cfg_naive, (&d_a, &d_b, &mut d_c_naive, M, N, K))?; }
+    unsafe { naive_func.launch(cfg_naive, (&d_a, &d_b, &mut d_c_naive, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
     let naive_time = start.elapsed();
 
@@ -77,11 +77,11 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     };
 
     // warmup
-    unsafe { tiled_func.clone().launch(cfg_tiled, (&d_a, &d_b, &mut d_c_tiled, M, N, K))?; }
+    unsafe { tiled_func.clone().launch(cfg_tiled, (&d_a, &d_b, &mut d_c_tiled, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
 
     let start = Instant::now();
-    unsafe { tiled_func.launch(cfg_tiled, (&d_a, &d_b, &mut d_c_tiled, M, N, K))?; }
+    unsafe { tiled_func.launch(cfg_tiled, (&d_a, &d_b, &mut d_c_tiled, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
     let tiled_time = start.elapsed();
 
@@ -99,11 +99,11 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     };
 
     // warmup
-    unsafe { tiled32_func.clone().launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M, N, K))?; }
+    unsafe { tiled32_func.clone().launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
 
     let start = Instant::now();
-    unsafe { tiled32_func.launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M, N, K))?; }
+    unsafe { tiled32_func.launch(cfg_tiled32, (&d_a, &d_b, &mut d_c_tiled32, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
     let tiled32_time = start.elapsed();
 
