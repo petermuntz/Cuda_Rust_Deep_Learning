@@ -50,10 +50,10 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
     let tc_func = dev.get_func("matmul_tc_module", "matmul_tiled_tc").unwrap();
     println!("  Loaded PTX");
 
-    // Minimal smoke test: 1 block, 1 warp
+    // Full 1024x1024 matmul: 64x64 tiles, block of 512 threads (16 warps)
     let cfg = LaunchConfig {
-        grid_dim: (1, 1, 1),
-        block_dim: (32, 1, 1),
+        grid_dim: (16, 16, 1),
+        block_dim: (32, 16, 1),
         shared_mem_bytes: 0,
     };
 
