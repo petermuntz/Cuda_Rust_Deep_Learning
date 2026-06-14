@@ -7,8 +7,16 @@ extern "C" __global__ void matmul_tiled_tc(
     float* __restrict__ C,
     int M, int N, int K
 ) {
-    // Minimal WMMA test: fill accumulator and store. No load_matrix_sync at all.
-    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, float> c_frag;
-    nvcuda::wmma::fill_fragment(c_frag, 1.0f);
-    nvcuda::wmma::store_matrix_sync(C, c_frag, N, nvcuda::wmma::mem_row_major);
+    // Test: load A and B fragments from global memory, then copy one element
+    // from each loaded fragment to C to prevent compiler from optimizing away
+    // the load_matrix_sync calls. No mma_sync.
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, __half, nvcuda::wmma::row_major> a_frag;
+    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, __half, nvcuda::wmma::row_major> b_frag;
+
+    nvcuda::wmma::load_matrix_sync(a_frag, reinterpret_cast<const __half*>(A), K);
+    nvcuda::wmma::load_matrix_sync(b_frag, reinterpret_cast<const __half*>(B), N);
+
+    // Use the loaded values to prevent optimization
+    C[blockIdx.x] = __half2float(a_frag.x[0]);
+    C[gridDim.x + blockIdx.x] = __half2float(b_frag.x[0]);
 }
