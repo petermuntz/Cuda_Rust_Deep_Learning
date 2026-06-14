@@ -3,7 +3,7 @@
 
 #define TILE_M 64
 #define TILE_N 64
-#define TILE_K 32
+#define TILE_K 64
 
 extern "C" __global__ void matmul_tiled_tc(
     const float* __restrict__ A,
@@ -11,7 +11,6 @@ extern "C" __global__ void matmul_tiled_tc(
     float* __restrict__ C,
     int M, int N, int K
 ) {
-    // Shared memory: strides are multiples of 8 (required by ldmatrix alignment)
     __shared__ __half As[TILE_M][TILE_K];
     __shared__ __half Bs[TILE_K][TILE_N];
 
@@ -29,7 +28,7 @@ extern "C" __global__ void matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 8; i++) {
             int idx = tid + i * 512;
             int r = idx / TILE_K;
             int c = idx % TILE_K;
@@ -39,7 +38,7 @@ extern "C" __global__ void matmul_tiled_tc(
             }
         }
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 8; i++) {
             int idx = tid + i * 512;
             int r = idx / TILE_N;
             int c = idx % TILE_N;
