@@ -96,3 +96,57 @@ extern "C" __global__ void matmul_tiled_32(
         C[row * N + col] = sum;
     }
 }
+
+#define TILE_M_W 128
+#define TILE_N_W 128
+#define TILE_K_W 32
+
+extern "C" __global__ void matmul_tiled_128x128(
+    const float* A, const float* B, float* C,
+    int M, int N, int K
+) {
+    __shared__ float As[TILE_M_W][TILE_K_W + 1];
+    __shared__ float Bs[TILE_K_W][TILE_N_W + 1];
+
+    int block_row = blockIdx.y * TILE_M_W;
+    int block_col = blockIdx.x * TILE_N_W;
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+
+    float accum[16] = {0.0f};
+
+    for (int k = 0; k < K; k += TILE_K_W) {
+        for (int i = 0; i < 4; i++) {
+            int m = ty * 4 + i;
+            As[m][tx] = A[(block_row + m) * K + (k + tx)];
+        }
+
+        for (int j = 0; j < 4; j++) {
+            int n = tx * 4 + j;
+            Bs[ty][n] = B[(k + ty) * N + (block_col + n)];
+        }
+
+        __syncthreads();
+
+        for (int kk = 0; kk < TILE_K_W; kk++) {
+            for (int i = 0; i < 4; i++) {
+                float a_val = As[ty * 4 + i][kk];
+                for (int j = 0; j < 4; j++) {
+                    accum[i * 4 + j] += a_val * Bs[kk][tx * 4 + j];
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            int row = block_row + ty * 4 + i;
+            int col = block_col + tx * 4 + j;
+            if (row < M && col < N) {
+                C[row * N + col] = accum[i * 4 + j];
+            }
+        }
+    }
+}
