@@ -67,13 +67,13 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     let naive_diff = max_diff(&host_c_ref, &host_c_naive);
     let naive_gflops = (2.0 * M as f64 * N as f64 * K as f64) / naive_time.as_secs_f64() / 1e9;
 
-    // ── Tiled matmul ──
+    // ── Tiled matmul (8 outputs/thread) ──
     let tiled_func = dev.get_func("matmul_module", "matmul_tiled").unwrap();
-    let grid_tiled = ((N as u32 + 31) / 32, (M as u32 + 127) / 128, 1);
+    let grid_tiled = ((N as u32 + 63) / 64, (M as u32 + 127) / 128, 1);
     let cfg_tiled = LaunchConfig {
         grid_dim: grid_tiled,
-        block_dim: (128, 4, 1),
-        shared_mem_bytes: (128 * 16 + 16 * 32) * 4,
+        block_dim: (32, 32, 1),
+        shared_mem_bytes: (128 * 33 + 32 * 65) * 4,
     };
 
     // warmup
@@ -116,7 +116,7 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     println!("{:<22} {:>10} {:>10} {:>12} {:>12}", "Kernel", "Time", "Speedup", "MaxErr", "GFLOPS");
     println!("{:-<22} {:->10} {:->10} {:->12} {:->12}", "", "", "", "", "");
     println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Naive (1:1)", naive_time.as_secs_f64() * 1e3, 1.0, naive_diff, naive_gflops);
-    println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled (8/thread)", tiled_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled_time.as_secs_f64(), tiled_diff, tiled_gflops);
+    println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled (coalesced)", tiled_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled_time.as_secs_f64(), tiled_diff, tiled_gflops);
     println!("{:<22} {:>8.3}ms {:>8.1}×  {:>11.2e}  {:>8.2}", "Tiled 32×32", tiled32_time.as_secs_f64() * 1e3, naive_time.as_secs_f64() / tiled32_time.as_secs_f64(), tiled32_diff, tiled32_gflops);
     println!("═══════════════════════════════════════════════\n");
 
