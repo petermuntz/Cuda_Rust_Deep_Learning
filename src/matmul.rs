@@ -73,7 +73,7 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     let cfg_tiled = LaunchConfig {
         grid_dim: grid_tiled,
         block_dim: (32, 32, 1),
-        shared_mem_bytes: (128 * 33 + 32 * 65) * 4,
+        shared_mem_bytes: 0,
     };
 
     // warmup
@@ -95,7 +95,7 @@ pub fn run_matmul_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Error>>
     let cfg_tiled32 = LaunchConfig {
         grid_dim: grid_tiled32,
         block_dim: (32, 32, 1),
-        shared_mem_bytes: (32 * 32 + 32 * 32) * 4,
+        shared_mem_bytes: 0,
     };
 
     // warmup
