@@ -37,29 +37,44 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
 
     println!("\nComputing reference on CPU... done.");
 
+    println!("  Allocating device memory...");
     let d_a = dev.htod_copy(host_a)?;
+    println!("  Copied A");
     let d_b = dev.htod_copy(host_b)?;
+    println!("  Copied B");
     let mut d_c = dev.alloc_zeros::<f32>(M * N)?;
+    println!("  Allocated C");
 
+    println!("  Loading PTX...");
     dev.load_ptx(PTX.into(), "matmul_tc_module", &["matmul_tiled_tc"])?;
     let tc_func = dev.get_func("matmul_tc_module", "matmul_tiled_tc").unwrap();
+    println!("  Loaded PTX");
 
-    let grid = ((N as u32 + 63) / 64, (M as u32 + 63) / 64, 1);
+    // Minimal smoke test: 1 block, 1 warp
     let cfg = LaunchConfig {
-        grid_dim: grid,
-        block_dim: (32, 16, 1),
+        grid_dim: (1, 1, 1),
+        block_dim: (32, 1, 1),
         shared_mem_bytes: 0,
     };
 
+    println!("  Launching warmup...");
     unsafe { tc_func.clone().launch(cfg, (&d_a, &d_b, &mut d_c, M as i32, N as i32, K as i32))?; }
+    println!("  Warmup launched OK");
     dev.synchronize()?;
+    println!("  Warmup sync OK");
 
+    println!("  Launching timed run...");
     let start = Instant::now();
     unsafe { tc_func.launch(cfg, (&d_a, &d_b, &mut d_c, M as i32, N as i32, K as i32))?; }
+    println!("  Timed launch OK");
     dev.synchronize()?;
+    println!("  Timed sync OK");
     let tc_time = start.elapsed();
 
+    println!("  Copying back results...");
     let host_c_tc: Vec<f32> = dev.dtoh_sync_copy(&d_c)?;
+    println!("  Copy OK");
+
     let tc_diff = max_diff(&host_c_ref, &host_c_tc);
     let tc_gflops = (2.0 * M as f64 * N as f64 * K as f64) / tc_time.as_secs_f64() / 1e9;
 
