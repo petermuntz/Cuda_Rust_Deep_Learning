@@ -2,6 +2,7 @@ use cudarc::driver::{CudaDevice, LaunchConfig, LaunchAsync};
 use std::sync::Arc;
 
 mod matmul;
+mod matmul_tc;
 
 const PTX: &str = include_str!(concat!(env!("OUT_DIR"), "/vector_add.ptx"));
 
@@ -53,6 +54,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n═══ MatMul Benchmark ═══");
     matmul::run_matmul_benchmark(&dev)?;
+
+    println!("\n═══ Tensor Core MatMul Benchmark ═══");
+    matmul_tc::run_matmul_tc_benchmark(&dev)?;
 
     println!("Success! Memory automatically cleared via Rust RAII dropping out of scope.");
     Ok(())
