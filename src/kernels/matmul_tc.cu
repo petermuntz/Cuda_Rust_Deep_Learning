@@ -28,25 +28,23 @@ extern "C" __global__ void matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 4; i++) {
             int idx = tid + i * 512;
-            int r = idx / (TILE_K / 2);
-            int c = idx % (TILE_K / 2);
+            int r = idx / TILE_K;
+            int c = idx % TILE_K;
             if (r < TILE_M) {
-                float2 f = *reinterpret_cast<const float2*>(&A[(block_row + r) * K + k + c * 2]);
-                As[r][c * 2] = __float2half(f.x);
-                As[r][c * 2 + 1] = __float2half(f.y);
+                int g_a = (block_row + r) * K + (k + c);
+                As[r][c] = __float2half(A[g_a]);
             }
         }
 
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 4; i++) {
             int idx = tid + i * 512;
-            int r = idx / (TILE_N / 2);
-            int c = idx % (TILE_N / 2);
+            int r = idx / TILE_N;
+            int c = idx % TILE_N;
             if (r < TILE_K) {
-                float2 f = *reinterpret_cast<const float2*>(&B[(k + r) * N + block_col + c * 2]);
-                Bs[r][c * 2] = __float2half(f.x);
-                Bs[r][c * 2 + 1] = __float2half(f.y);
+                int g_b = (k + r) * N + (block_col + c);
+                Bs[r][c] = __float2half(B[g_b]);
             }
         }
 
