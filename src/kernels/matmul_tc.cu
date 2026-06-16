@@ -3,7 +3,9 @@
 
 #define TILE_M 64
 #define TILE_N 64
-#define TILE_K 64
+#define TILE_K 32
+#define AS_STRIDE (TILE_K + 8)
+#define BS_STRIDE (TILE_N + 8)
 
 extern "C" __global__ void matmul_tiled_tc(
     const float* __restrict__ A,
@@ -11,8 +13,8 @@ extern "C" __global__ void matmul_tiled_tc(
     float* __restrict__ C,
     int M, int N, int K
 ) {
-    __shared__ __half As[TILE_M][TILE_K];
-    __shared__ __half Bs[TILE_K][TILE_N];
+    __shared__ __half As[TILE_M][AS_STRIDE];
+    __shared__ __half Bs[TILE_K][BS_STRIDE];
 
     int block_row = blockIdx.y * TILE_M;
     int block_col = blockIdx.x * TILE_N;
@@ -28,7 +30,7 @@ extern "C" __global__ void matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 4; i++) {
             int idx = tid + i * 512;
             int r = idx / TILE_K;
             int c = idx % TILE_K;
@@ -38,7 +40,7 @@ extern "C" __global__ void matmul_tiled_tc(
             }
         }
 
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 4; i++) {
             int idx = tid + i * 512;
             int r = idx / TILE_N;
             int c = idx % TILE_N;
@@ -51,8 +53,8 @@ extern "C" __global__ void matmul_tiled_tc(
         __syncthreads();
 
         for (int kk = 0; kk < TILE_K; kk += 16) {
-            nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], TILE_K);
-            nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], TILE_N);
+            nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], AS_STRIDE);
+            nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], BS_STRIDE);
             nvcuda::wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
         }
 
