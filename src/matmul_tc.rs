@@ -61,10 +61,10 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
     dev.synchronize()?;
     println!("  Conversion done");
 
-    // Full 1024x1024 matmul: 64x64 tiles, 256 threads/block (4 blocks/SM)
+    // Full 1024x1024 matmul: 64x64 tiles, half-precision inputs, block of 512 threads (16 warps)
     let cfg = LaunchConfig {
         grid_dim: (16, 16, 1),
-        block_dim: (32, 8, 1),
+        block_dim: (32, 16, 1),
         shared_mem_bytes: 0,
     };
 

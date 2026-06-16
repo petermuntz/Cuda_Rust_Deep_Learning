@@ -15,7 +15,7 @@ extern "C" __global__ void convert_f32_to_f16(
     }
 }
 
-extern "C" __global__ void __launch_bounds__(256) matmul_tiled_tc(
+extern "C" __global__ void __launch_bounds__(512) matmul_tiled_tc(
     const __half* __restrict__ A,
     const __half* __restrict__ B,
     float* __restrict__ C,
@@ -29,19 +29,18 @@ extern "C" __global__ void __launch_bounds__(256) matmul_tiled_tc(
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
     int warp_id = threadIdx.y;
-    int warp_m = warp_id / 2;
-    int warp_pair = warp_id % 2;
+    int warp_m = warp_id / 4;
+    int warp_n = warp_id % 4;
 
     nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 16, 16, 16, __half, nvcuda::wmma::row_major> a_frag;
     nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 16, 16, 16, __half, nvcuda::wmma::row_major> b_frag;
-    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, float> c_frag[2];
-    nvcuda::wmma::fill_fragment(c_frag[0], 0.0f);
-    nvcuda::wmma::fill_fragment(c_frag[1], 0.0f);
+    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 16, 16, 16, float> c_frag;
+    nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        #pragma unroll 8
-        for (int i = 0; i < 8; i++) {
-            int idx = tid + i * 256;
+        #pragma unroll 4
+        for (int i = 0; i < 4; i++) {
+            int idx = tid + i * 512;
             int r = idx / TILE_K;
             int c = idx % TILE_K;
             if (r < TILE_M) {
@@ -49,9 +48,9 @@ extern "C" __global__ void __launch_bounds__(256) matmul_tiled_tc(
             }
         }
 
-        #pragma unroll 8
-        for (int i = 0; i < 8; i++) {
-            int idx = tid + i * 256;
+        #pragma unroll 4
+        for (int i = 0; i < 4; i++) {
+            int idx = tid + i * 512;
             int r = idx / TILE_N;
             int c = idx % TILE_N;
             if (r < TILE_K) {
@@ -61,24 +60,19 @@ extern "C" __global__ void __launch_bounds__(256) matmul_tiled_tc(
 
         __syncthreads();
 
-        for (int n_sub = 0; n_sub < 2; n_sub++) {
-            int warp_n = 2 * warp_pair + n_sub;
-            #pragma unroll 2
-            for (int kk = 0; kk < TILE_K; kk += 16) {
-                nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], TILE_K);
-                nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], TILE_N);
-                nvcuda::wmma::mma_sync(c_frag[n_sub], a_frag, b_frag, c_frag[n_sub]);
-            }
+        #pragma unroll 2
+        for (int kk = 0; kk < TILE_K; kk += 16) {
+            nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], TILE_K);
+            nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], TILE_N);
+            nvcuda::wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
         }
 
         __syncthreads();
     }
 
-    for (int n_sub = 0; n_sub < 2; n_sub++) {
-        int c_row = block_row + warp_m * 16;
-        int c_col = block_col + (2 * warp_pair + n_sub) * 16;
-        if (c_row < M && c_col < N) {
-            nvcuda::wmma::store_matrix_sync(C + c_row * N + c_col, c_frag[n_sub], N, nvcuda::wmma::mem_row_major);
-        }
+    int c_row = block_row + warp_m * 16;
+    int c_col = block_col + warp_n * 16;
+    if (c_row < M && c_col < N) {
+        nvcuda::wmma::store_matrix_sync(C + c_row * N + c_col, c_frag, N, nvcuda::wmma::mem_row_major);
     }
 }
