@@ -1,5 +1,6 @@
 #include <mma.h>
 #include <cuda_fp16.h>
+#include <cuda_pipeline.h>
 
 #define TILE_M 64
 #define TILE_N 64
@@ -11,6 +12,8 @@ extern "C" __global__ void matmul_tiled_tc(
     float* __restrict__ C,
     int M, int N, int K
 ) {
+    __shared__ float As_raw[TILE_M][TILE_K];
+    __shared__ float Bs_raw[TILE_K][TILE_N];
     __shared__ __half As[TILE_M][TILE_K];
     __shared__ __half Bs[TILE_K][TILE_N];
 
@@ -28,28 +31,54 @@ extern "C" __global__ void matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        for (int i = 0; i < 4; i++) {
-            int idx = tid + i * 512;
-            int r = idx / TILE_K;
-            int c = idx % TILE_K;
+        // Phase 1: Async copy A tile from global to As_raw (16 bytes per thread x 4 floats)
+        {
+            int r = tid / (TILE_K / 4);
+            int c = (tid % (TILE_K / 4)) * 4;
             if (r < TILE_M) {
-                int g_a = (block_row + r) * K + (k + c);
-                As[r][c] = __float2half(A[g_a]);
+                __pipeline_memcpy_async(&As_raw[r][c], &A[(block_row + r) * K + k + c], 16);
             }
         }
 
-        for (int i = 0; i < 4; i++) {
-            int idx = tid + i * 512;
-            int r = idx / TILE_N;
-            int c = idx % TILE_N;
+        // Phase 2: Async copy B tile from global to Bs_raw
+        {
+            int r = tid / (TILE_N / 4);
+            int c = (tid % (TILE_N / 4)) * 4;
             if (r < TILE_K) {
-                int g_b = (k + r) * N + (block_col + c);
-                Bs[r][c] = __float2half(B[g_b]);
+                __pipeline_memcpy_async(&Bs_raw[r][c], &B[(k + r) * N + block_col + c], 16);
+            }
+        }
+
+        __pipeline_commit();
+        __pipeline_wait_prior(0);
+        __syncthreads();
+
+        // Phase 3: Convert float -> half in shared memory
+        {
+            int r = tid / (TILE_K / 4);
+            int c = (tid % (TILE_K / 4)) * 4;
+            if (r < TILE_M) {
+                As[r][c] = __float2half(As_raw[r][c]);
+                As[r][c + 1] = __float2half(As_raw[r][c + 1]);
+                As[r][c + 2] = __float2half(As_raw[r][c + 2]);
+                As[r][c + 3] = __float2half(As_raw[r][c + 3]);
+            }
+        }
+
+        {
+            int r = tid / (TILE_N / 4);
+            int c = (tid % (TILE_N / 4)) * 4;
+            if (r < TILE_K) {
+                Bs[r][c] = __float2half(Bs_raw[r][c]);
+                Bs[r][c + 1] = __float2half(Bs_raw[r][c + 1]);
+                Bs[r][c + 2] = __float2half(Bs_raw[r][c + 2]);
+                Bs[r][c + 3] = __float2half(Bs_raw[r][c + 3]);
             }
         }
 
         __syncthreads();
 
+        // Phase 4: WMMA compute
         for (int kk = 0; kk < TILE_K; kk += 16) {
             nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], TILE_K);
             nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], TILE_N);
