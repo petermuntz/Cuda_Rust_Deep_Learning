@@ -37,20 +37,32 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
 
     println!("\nComputing reference on CPU... done.");
 
-    println!("  Allocating device memory...");
-    let d_a = dev.htod_copy(host_a)?;
-    println!("  Copied A");
-    let d_b = dev.htod_copy(host_b)?;
-    println!("  Copied B");
-    let mut d_c = dev.alloc_zeros::<f32>(M * N)?;
-    println!("  Allocated C");
-
     println!("  Loading PTX...");
-    dev.load_ptx(PTX.into(), "matmul_tc_module", &["matmul_tiled_tc"])?;
+    dev.load_ptx(PTX.into(), "matmul_tc_module", &["matmul_tiled_tc", "convert_f32_to_f16"])?;
     let tc_func = dev.get_func("matmul_tc_module", "matmul_tiled_tc").unwrap();
-    println!("  Loaded PTX");
+    let convert_func = dev.get_func("matmul_tc_module", "convert_f32_to_f16").unwrap();
 
-    // Full 1024x1024 matmul: 64x64 tiles, block of 512 threads (16 warps)
+    println!("  Allocating device memory...");
+    let d_a_f32 = dev.htod_copy(host_a)?;
+    let d_b_f32 = dev.htod_copy(host_b)?;
+    let mut d_a_half = dev.alloc_zeros::<u16>(M * K)?;
+    let mut d_b_half = dev.alloc_zeros::<u16>(K * N)?;
+    let mut d_c = dev.alloc_zeros::<f32>(M * N)?;
+    println!("  Allocated device memory");
+
+    println!("  Converting f32 -> f16 on GPU...");
+    let n_elem = (M * K) as i32;
+    let convert_cfg = LaunchConfig {
+        grid_dim: (256, 1, 1),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0,
+    };
+    unsafe { convert_func.clone().launch(convert_cfg, (&d_a_f32, &mut d_a_half, n_elem))?; }
+    unsafe { convert_func.clone().launch(convert_cfg, (&d_b_f32, &mut d_b_half, (K * N) as i32))?; }
+    dev.synchronize()?;
+    println!("  Conversion done");
+
+    // Full 1024x1024 matmul: 64x64 tiles, half-precision inputs, block of 512 threads (16 warps)
     let cfg = LaunchConfig {
         grid_dim: (16, 16, 1),
         block_dim: (32, 16, 1),
@@ -58,15 +70,13 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
     };
 
     println!("  Launching warmup...");
-    unsafe { tc_func.clone().launch(cfg, (&d_a, &d_b, &mut d_c, M as i32, N as i32, K as i32))?; }
-    println!("  Warmup launched OK");
+    unsafe { tc_func.clone().launch(cfg, (&d_a_half, &d_b_half, &mut d_c, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
     println!("  Warmup sync OK");
 
     println!("  Launching timed run...");
     let start = Instant::now();
-    unsafe { tc_func.launch(cfg, (&d_a, &d_b, &mut d_c, M as i32, N as i32, K as i32))?; }
-    println!("  Timed launch OK");
+    unsafe { tc_func.launch(cfg, (&d_a_half, &d_b_half, &mut d_c, M as i32, N as i32, K as i32))?; }
     dev.synchronize()?;
     println!("  Timed sync OK");
     let tc_time = start.elapsed();

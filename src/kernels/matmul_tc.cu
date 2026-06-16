@@ -5,9 +5,20 @@
 #define TILE_N 64
 #define TILE_K 32
 
+extern "C" __global__ void convert_f32_to_f16(
+    const float* __restrict__ in,
+    __half* __restrict__ out,
+    int n
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        out[i] = __float2half(in[i]);
+    }
+}
+
 extern "C" __global__ void __launch_bounds__(512) matmul_tiled_tc(
-    const float* __restrict__ A,
-    const float* __restrict__ B,
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
     float* __restrict__ C,
     int M, int N, int K
 ) {
@@ -28,23 +39,24 @@ extern "C" __global__ void __launch_bounds__(512) matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        // Load As tile (64x32) using float2 -> __half2 vectorized loads
-        #pragma unroll 2
-        for (int i = 0; i < 2; i++) {
-            int elem_idx = tid + i * 512;
-            int r = elem_idx / 16;
-            int c = (elem_idx % 16) * 2;
-            float2 f2 = reinterpret_cast<const float2*>(A + (block_row + r) * K + (k + c))[0];
-            *reinterpret_cast<__half2*>(&As[r][c]) = __float22half2_rn(f2);
+        #pragma unroll 4
+        for (int i = 0; i < 4; i++) {
+            int idx = tid + i * 512;
+            int r = idx / TILE_K;
+            int c = idx % TILE_K;
+            if (r < TILE_M) {
+                As[r][c] = A[(block_row + r) * K + (k + c)];
+            }
         }
 
-        #pragma unroll 2
-        for (int i = 0; i < 2; i++) {
-            int elem_idx = tid + i * 512;
-            int r = elem_idx / 32;
-            int c = (elem_idx % 32) * 2;
-            float2 f2 = reinterpret_cast<const float2*>(B + (k + r) * N + (block_col + c))[0];
-            *reinterpret_cast<__half2*>(&Bs[r][c]) = __float22half2_rn(f2);
+        #pragma unroll 4
+        for (int i = 0; i < 4; i++) {
+            int idx = tid + i * 512;
+            int r = idx / TILE_N;
+            int c = idx % TILE_N;
+            if (r < TILE_K) {
+                Bs[r][c] = B[(k + r) * N + (block_col + c)];
+            }
         }
 
         __syncthreads();
