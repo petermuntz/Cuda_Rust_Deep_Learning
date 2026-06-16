@@ -4,8 +4,6 @@
 #define TILE_M 64
 #define TILE_N 64
 #define TILE_K 32
-#define AS_STRIDE (TILE_K + 8)
-#define BS_STRIDE (TILE_N + 8)
 
 extern "C" __global__ void matmul_tiled_tc(
     const float* __restrict__ A,
@@ -13,8 +11,8 @@ extern "C" __global__ void matmul_tiled_tc(
     float* __restrict__ C,
     int M, int N, int K
 ) {
-    __shared__ __half As[TILE_M][AS_STRIDE];
-    __shared__ __half Bs[TILE_K][BS_STRIDE];
+    __shared__ __half As[TILE_M][TILE_K];
+    __shared__ __half Bs[TILE_K][TILE_N];
 
     int block_row = blockIdx.y * TILE_M;
     int block_col = blockIdx.x * TILE_N;
@@ -30,31 +28,35 @@ extern "C" __global__ void matmul_tiled_tc(
     nvcuda::wmma::fill_fragment(c_frag, 0.0f);
 
     for (int k = 0; k < K; k += TILE_K) {
-        for (int i = 0; i < 4; i++) {
+        // Load A tile: 2 float2 loads per thread (each float2 = 2 floats = 2 halfs)
+        for (int i = 0; i < 2; i++) {
             int idx = tid + i * 512;
-            int r = idx / TILE_K;
-            int c = idx % TILE_K;
+            int r = idx / (TILE_K / 2);  // 0..63
+            int c = idx % (TILE_K / 2);  // 0..15
             if (r < TILE_M) {
-                int g_a = (block_row + r) * K + (k + c);
-                As[r][c] = __float2half(A[g_a]);
+                float2 f = *reinterpret_cast<const float2*>(&A[(block_row + r) * K + k + c * 2]);
+                As[r][c * 2] = __float2half(f.x);
+                As[r][c * 2 + 1] = __float2half(f.y);
             }
         }
 
-        for (int i = 0; i < 4; i++) {
+        // Load B tile: 2 float2 loads per thread (each float2 = 2 floats = 2 halfs)
+        for (int i = 0; i < 2; i++) {
             int idx = tid + i * 512;
-            int r = idx / TILE_N;
-            int c = idx % TILE_N;
+            int r = idx / (TILE_N / 2);  // 0..31
+            int c = idx % (TILE_N / 2);  // 0..31
             if (r < TILE_K) {
-                int g_b = (k + r) * N + (block_col + c);
-                Bs[r][c] = __float2half(B[g_b]);
+                float2 f = *reinterpret_cast<const float2*>(&B[(k + r) * N + block_col + c * 2]);
+                Bs[r][c * 2] = __float2half(f.x);
+                Bs[r][c * 2 + 1] = __float2half(f.y);
             }
         }
 
         __syncthreads();
 
         for (int kk = 0; kk < TILE_K; kk += 16) {
-            nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], AS_STRIDE);
-            nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], BS_STRIDE);
+            nvcuda::wmma::load_matrix_sync(a_frag, &As[warp_m * 16][kk], TILE_K);
+            nvcuda::wmma::load_matrix_sync(b_frag, &Bs[kk][warp_n * 16], TILE_N);
             nvcuda::wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
         }
 
