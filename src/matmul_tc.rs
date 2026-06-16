@@ -51,13 +51,12 @@ pub fn run_matmul_tc_benchmark(dev: &Arc<CudaDevice>) -> Result<(), Box<dyn Erro
     println!("  Allocated device memory");
 
     println!("  Converting f32 -> f16 on GPU...");
-    let n_elem = (M * K) as i32;
     let convert_cfg = LaunchConfig {
-        grid_dim: (256, 1, 1),
+        grid_dim: (4096, 1, 1),
         block_dim: (256, 1, 1),
         shared_mem_bytes: 0,
     };
-    unsafe { convert_func.clone().launch(convert_cfg, (&d_a_f32, &mut d_a_half, n_elem))?; }
+    unsafe { convert_func.clone().launch(convert_cfg, (&d_a_f32, &mut d_a_half, (M * K) as i32))?; }
     unsafe { convert_func.clone().launch(convert_cfg, (&d_b_f32, &mut d_b_half, (K * N) as i32))?; }
     dev.synchronize()?;
     println!("  Conversion done");

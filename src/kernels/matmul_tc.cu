@@ -10,8 +10,7 @@ extern "C" __global__ void convert_f32_to_f16(
     __half* __restrict__ out,
     int n
 ) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n) {
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
         out[i] = __float2half(in[i]);
     }
 }
